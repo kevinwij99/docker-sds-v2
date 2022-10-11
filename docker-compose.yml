@@ -1,0 +1,633 @@
+version: '3.8'
+
+services:
+
+  db:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - mysql-data3:/var/lib/mysql
+      - ./docker/mysql/config.cnf:/etc/mysql/conf.d/config.cnf
+    ports:
+      - 3307:3306
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: admin_member_db
+      MYSQL_USER: admin_member_db_user
+      MYSQL_PASSWORD: admin_member_db_pass
+    cap_add:
+      - SYS_NICE
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    restart: always
+    ports:
+      - '8081:80'
+    environment:
+      PMA_HOST: db
+      PMA_USER: admin_member_db_user
+      PMA_PASSWORD: admin_member_db_pass
+      MYSQL_ROOT_PASSWORD: root
+    depends_on:
+      - db 
+
+  admin-area-v2:
+    build: ../admin-area-v2
+    depends_on: 
+      - db
+      - rabbitmq
+      - mongodb
+      - redis
+      - balance-ag01
+      - deposit-ag01
+      - withdraw-ag01
+      - activity-admin
+      - activity-member
+      - pending-deposit-ag01
+      - pending-withdraw-ag01
+      - pending-promotion-ag01
+      - pending-memo-ag01
+      - pending-adjustment-ag01
+      - sync-data-ag01
+      - sync-data-global-ag01
+    ports:
+      - 8082:80
+    volumes:
+      - ../admin-area-v2:/app
+
+  member-area-v2:
+    build: ../member-area-v2
+    depends_on: 
+      - db
+      - rabbitmq
+      - mongodb
+      - redis-ag01
+      - admin-area-v2
+    ports:
+      - 8084:80
+    volumes:
+      - ../member-area-v2:/app
+      
+
+  rabbitmq:
+    image: rabbitmq:3.9-management
+    restart: always
+    ports:
+      - 5672:5672
+      - 15672:15672
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq/
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+
+  mongodb:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27017:27017
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+  redis:
+    image: redis:6.2
+    restart: always
+    ports:
+      - 6379:6379
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+
+  redis-ag01:
+    image: redis:6.2
+    restart: always
+    ports:
+      - 6380:6379
+    volumes:
+      - redis-ag01-data:/data
+      - ./redis-ag01/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+
+
+  master-job-processor-v2:
+    build: ../master-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+      - mongodb
+    ports:
+      - 8083:80
+    volumes:
+      - ../master-job-processor-v2:/app
+
+
+  # activity log
+
+  activity-admin:
+    build: ../master-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../master-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "activity/admin"]
+
+  activity-member:
+    build: ../master-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../master-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "activity/member"]
+
+  # core daemons
+
+  balance-ag01:
+    build: ../master-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../master-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "balance", "ag01"]
+
+
+  memberdetail-ag01:
+    build: ../master-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../master-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "member-detail", "ag01"]
+
+  deposit-ag01:
+    build: ../master-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../master-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "deposit/process", "ag01"]
+  
+  withdraw-ag01:
+    build: ../master-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../master-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "withdraw/process", "ag01"]
+  
+
+  pending-deposit-ag01:
+    build: ../master-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../master-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "notification/deposit", "ag01"]
+  
+
+  pending-withdraw-ag01:
+    build: ../master-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../master-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "notification/withdraw", "ag01"]
+  
+
+  pending-adjustment-ag01:
+    build: ../master-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../master-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "notification/adjustment", "ag01"]
+
+  pending-promotion-ag01:
+    build: ../master-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../master-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "notification/promotion", "ag01"]
+
+  pending-memo-ag01:
+    build: ../master-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../master-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "notification/memo", "ag01"]
+
+  agent-job-processor-v2:
+    build: ../agent-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    ports:
+      - 8085:80
+    volumes:
+      - ../agent-job-processor-v2:/app
+
+  sync-data-ag01:
+    build: ../agent-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../agent-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "sync-data/process", "ag01"]
+
+  sync-data-global-ag01:
+    build: ../agent-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../agent-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "sync-data/process-global", "ag01"]
+
+  reporting-job-processor-v2:
+    build: ../reporting-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    ports:
+      - 8087:80
+    volumes:
+      - ../reporting-job-processor-v2:/app
+
+  bet-process-ag01:
+    build: ../reporting-job-processor-v2
+    depends_on: 
+      - db
+      - rabbitmq
+    volumes:
+      - ../reporting-job-processor-v2:/app
+    restart: unless-stopped
+    entrypoint: ["php", "yii", "bet/process", "ag01"]  
+
+  # pragmatic 
+
+  api-pragmatic-v2:
+    build: ../api-pragmatic-v2
+    depends_on: 
+      - db
+    ports:
+      - 8086:80
+    volumes:
+      - ../api-pragmatic-v2:/app
+
+  db-pragmatic:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27018:27017
+    volumes:
+      - pragmatic-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+  # habanero
+
+  api-habanero-v2:
+    build: ../api-habanero-v2
+    depends_on: 
+      - db
+    ports:
+      - 8088:80
+    volumes:
+      - ../api-habanero-v2:/app
+
+  db-habanero:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27019:27017
+    volumes:
+      - habanero-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+  # spadegaming
+
+  api-spade-v2:
+    build: ../api-spade-v2
+    depends_on: 
+      - db
+    ports:
+      - 8089:80
+    volumes:
+      - ../api-spade-v2:/app
+
+  db-spade:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27020:27017
+    volumes:
+      - spadegaming-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+  
+  # lottery
+  
+  api-lottery-v2:
+    build: ../api-lottery-v2
+    depends_on: 
+      - db
+    ports:
+      - 8090:80
+    volumes:
+      - ../api-lottery-v2:/app
+  
+  db-lottery:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27021:27017
+    volumes:
+      - lottery-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+  # IDN
+
+  api-idn-v2:
+    build: ../api-idn-v2
+    depends_on: 
+      - db
+    ports:
+      - 8091:80
+    volumes:
+      - ../api-idn-v2:/app
+  
+  db-idn:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27022:27017
+    volumes:
+      - idn-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+  # 1G Poker
+
+  api-1g-v2:
+    build: ../api-1g-v2
+    depends_on: 
+      - db
+    ports:
+      - 8093:80
+    volumes:
+      - ../api-1g-v2:/app
+  
+  db-1g:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27024:27017
+    volumes:
+      - 1g-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+  # SBO
+
+  api-sbo-v2:
+    build: ../api-sbo-v2
+    depends_on: 
+      - db
+    ports:
+      - 8094:80
+    volumes:
+      - ../api-sbo-v2:/app
+  
+  db-sbo:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27025:27017
+    volumes:
+      - sbo-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+  # Joker
+
+  api-joker-v2:
+    build: ../api-joker-v2
+    depends_on: 
+      - db
+    ports:
+      - 8095:80
+    volumes:
+      - ../api-joker-v2:/app
+  
+  db-joker:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27026:27017
+    volumes:
+      - joker-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+  # AWC
+
+  api-awc-v2:
+    build: ../api-awc-v2
+    depends_on: 
+      - db
+    ports:
+      - 8098:80
+    volumes:
+      - ../api-awc-v2:/app
+  
+  db-awc:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27029:27017
+    volumes:
+      - awc-data:/data/db
+      
+
+  # PG Soft
+  
+  api-pgs-v2:
+    build: ../api-pgs-v2
+    depends_on: 
+      - db
+    ports:
+      - 8096:80
+    volumes:
+      - ../api-pgs:/app
+  
+  db-pgs:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27027:27017
+    volumes:
+      - pgs-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+  # KMQM RT
+
+  api-rt-v2:
+    build: ../api-rt-v2
+    depends_on: 
+      - db
+    ports:
+      - 8097:80
+    volumes:
+      - ../api-rt-v2:/app
+  
+  db-rt:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27028:27017
+    volumes:
+      - rt-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+  # ION
+
+  api-ion-v2:
+    build: ../api-ion-v2
+    depends_on: 
+      - db
+    ports:
+      - 8099:80
+    volumes:
+      - ../api-ion-v2:/app
+
+  db-ion:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27030:27017
+    volumes:
+      - ion-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+  # WM Casino
+
+  api-wm-v2:
+    build: ../api-wm-v2
+    depends_on: 
+      - db-wm
+    ports:
+      - 8100:80
+    volumes:
+      - ../api-wm-v2:/app
+
+  db-wm:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27031:27017
+    volumes:
+      - wm-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+  
+  api-cq9-v2:
+    build: ../api-cq9-v2
+    depends_on: 
+      - db-wm
+    ports:
+      - 8101:80
+    volumes:
+      - ../api-cq9-v2:/app
+
+  db-cq9:
+    image: mongo:4.4-focal
+    restart: always
+    ports:
+      - 27032:27017
+    volumes:
+      - cq9-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: inipasswordadmin
+      MONGO_INITDB_DATABASE: admin
+
+volumes: 
+  mysql-data3:
+  rabbitmq-data:
+  mongo-data:
+  redis-data:
+  redis-ag01-data:
+  pragmatic-data:
+  habanero-data:
+  spadegaming-data:
+  lottery-data:
+  idn-data:
+  idn-poker-data:
+  1g-data:
+  sbo-data:
+  joker-data:
+  awc-data:
+  pgs-data:
+  rt-data:
+  ion-data:
+  wm-data:
+  cq9-data:
